@@ -564,11 +564,12 @@ class TestJSONRPCIntegration(unittest.TestCase):
         config.include('pyramid_rpc.jsonrpc')
         config.set_session_factory(DummySessionFactory)
         config.add_jsonrpc_endpoint('rpc', '/api/jsonrpc', require_csrf=True)
-        config.add_jsonrpc_method(lambda request: 'is not called', endpoint='rpc', method='dummy')
+        config.add_jsonrpc_method(lambda: 'not actually called',
+                                  endpoint='rpc', method='dummy')
         app = config.make_wsgi_app()
         app = TestApp(app)
         with self.assertRaises(BadCSRFToken):
-            result = self._callFUT(app, 'dummy', [])
+            self._callFUT(app, 'dummy', [])
 
     def test_require_csrf_overrideable_on_method(self):
         def view(request):
@@ -576,7 +577,8 @@ class TestJSONRPCIntegration(unittest.TestCase):
         config = self.config
         config.include('pyramid_rpc.jsonrpc')
         config.add_jsonrpc_endpoint('rpc', '/api/jsonrpc', require_csrf=True)
-        config.add_jsonrpc_method(view, endpoint='rpc', method='dummy', require_csrf=False)
+        config.add_jsonrpc_method(view, endpoint='rpc',
+                                  method='dummy', require_csrf=False)
         app = config.make_wsgi_app()
         app = TestApp(app)
         result = self._callFUT(app, 'dummy', [], expect_error=False)
@@ -600,7 +602,7 @@ class TestJSONRPCIntegration(unittest.TestCase):
         app = config.make_wsgi_app()
         app = TestApp(app)
         with self.assertRaises(BadCSRFToken):
-            result = self._callFUT(app, 'err', [], expect_error=True)
+            self._callFUT(app, 'err', [], expect_error=True)
 
     def test_it_with_batched_requests_require_csrf_False(self):
         def view(request, a, b):
@@ -626,13 +628,11 @@ class TestJSONRPCIntegration(unittest.TestCase):
         self.assertEqual(result2, {'id': 2, 'jsonrpc': '2.0', 'result': [3, 2]})
 
     def test_it_with_batched_requests_require_csrf_True_must_fail(self):
-        def view(request, a, b):
-            return [a, b]
         config = self.config
         config.set_session_factory(DummySessionFactory)
         config.include('pyramid_rpc.jsonrpc')
         config.add_jsonrpc_endpoint('rpc', '/api/jsonrpc', require_csrf=True)
-        config.add_jsonrpc_method(view, endpoint='rpc', method='dummy')
+        config.add_jsonrpc_method(lambda: 'this is not actually called', endpoint='rpc', method='dummy')
         app = config.make_wsgi_app()
         app = TestApp(app)
         body = [
@@ -640,8 +640,8 @@ class TestJSONRPCIntegration(unittest.TestCase):
             {'id': 2, 'jsonrpc': '2.0', 'method': 'dummy', 'params': {'a': 3, 'b': 2}},
         ]
         with self.assertRaises(BadCSRFToken):
-            resp = app.post('/api/jsonrpc', content_type='application/json',
-                            params=json.dumps(body))
+            app.post('/api/jsonrpc', content_type='application/json',
+                     params=json.dumps(body))
 
 
 class TestGET(unittest.TestCase):
