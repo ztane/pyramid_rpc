@@ -316,10 +316,11 @@ def batched_request_view(request):
 
 
 class Endpoint(object):
-    def __init__(self, name, default_mapper, default_renderer):
+    def __init__(self, name, default_mapper, default_renderer, require_csrf):
         self.name = name
         self.default_mapper = default_mapper
         self.default_renderer = default_renderer
+        self.require_csrf = require_csrf
 
 
 def add_jsonrpc_endpoint(config, name, *args, **kw):
@@ -341,17 +342,24 @@ def add_jsonrpc_endpoint(config, name, *args, **kw):
         string name of the renderer, registered via
         :meth:`pyramid.config.Configurator.add_renderer`.
 
+    ``require_csrf``
+
+        If this argument is specified and is not ``None``, the value will
+        be passed as the ``require_csrf`` argument to each of the endpoint's
+        methods, and the batch request view and error view registration.
+
     A JSON-RPC method also accepts all of the arguments supplied to
     :meth:`pyramid.config.Configurator.add_route`.
-
     """
     default_mapper = kw.pop('default_mapper', MapplyViewMapper)
     default_renderer = kw.pop('default_renderer', DEFAULT_RENDERER)
+    require_csrf = kw.pop('require_csrf', None)
 
     endpoint = Endpoint(
         name,
         default_mapper=default_mapper,
         default_renderer=default_renderer,
+        require_csrf=require_csrf
     )
 
     config.registry.jsonrpc_endpoints[name] = endpoint
@@ -363,9 +371,11 @@ def add_jsonrpc_endpoint(config, name, *args, **kw):
     kw['jsonrpc_batched'] = True
     kw['renderer'] = null_renderer
     config.add_view(batched_request_view, route_name=name,
-                    permission=NO_PERMISSION_REQUIRED, **kw)
+                    permission=NO_PERMISSION_REQUIRED,
+                    require_csrf=require_csrf, **kw)
     config.add_view(exception_view, route_name=name, context=Exception,
-                    permission=NO_PERMISSION_REQUIRED)
+                    permission=NO_PERMISSION_REQUIRED,
+                    require_csrf=require_csrf)
 
 
 def add_jsonrpc_method(config, view, **kw):
@@ -415,6 +425,10 @@ def add_jsonrpc_method(config, view, **kw):
         # only override mapper if not supplied
         mapper = endpoint.default_mapper
     kw['mapper'] = mapper
+
+    if 'require_csrf' not in kw and endpoint.require_csrf is not None:
+        # only override mapper if not supplied
+        kw['require_csrf'] = endpoint.require_csrf
 
     renderer = kw.pop('renderer', None)
     if renderer is None:

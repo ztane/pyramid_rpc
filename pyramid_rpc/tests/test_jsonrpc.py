@@ -2,8 +2,16 @@ import json
 import unittest
 
 from pyramid import testing
-
+from pyramid.exceptions import BadCSRFToken
 from webtest import TestApp
+
+
+class DummySessionFactory(object):
+    def __init__(self, request):
+        pass
+
+    def get_csrf_token(self):
+        return 'abc'
 
 
 class Test_add_jsonrpc_method(unittest.TestCase):
@@ -536,6 +544,117 @@ class TestJSONRPCIntegration(unittest.TestCase):
         val = b'S\xc3\xa9bastien'.decode('utf-8')
         result = self._callFUT(app, 'dummy', [val])
         self.assertEqual(result['result'], val)
+
+    def test_require_csrf_False(self):
+        config = self.config
+        def view(request):
+            return 'this must return'
+
+        config = self.config
+        config.include('pyramid_rpc.jsonrpc')
+        config.set_default_csrf_options(require_csrf=True)
+        config.add_jsonrpc_endpoint('rpc', '/api/jsonrpc', require_csrf=False)
+        config.add_jsonrpc_method(view, endpoint='rpc', method='dummy')
+        app = config.make_wsgi_app()
+        app = TestApp(app)
+        result = self._callFUT(app, 'dummy', [], expect_error=False)
+        self.assertEqual(result['result'], 'this must return')
+
+    def test_require_csrf_True(self):
+        config = self.config
+        def view(request):
+            return 'this must not return'
+
+        config = self.config
+        config.include('pyramid_rpc.jsonrpc')
+        config.set_session_factory(DummySessionFactory)
+        config.add_jsonrpc_endpoint('rpc', '/api/jsonrpc', require_csrf=True)
+        config.add_jsonrpc_method(view, endpoint='rpc', method='dummy')
+        app = config.make_wsgi_app()
+        app = TestApp(app)
+        with self.assertRaises(BadCSRFToken):
+            result = self._callFUT(app, 'dummy', [])
+
+    def test_require_csrf_overrideable_on_method(self):
+        config = self.config
+        def view(request):
+            return 'this must return'
+
+        config = self.config
+        config.include('pyramid_rpc.jsonrpc')
+        config.add_jsonrpc_endpoint('rpc', '/api/jsonrpc', require_csrf=True)
+        config.add_jsonrpc_method(view, endpoint='rpc', method='dummy', require_csrf=False)
+        app = config.make_wsgi_app()
+        app = TestApp(app)
+        result = self._callFUT(app, 'dummy', [], expect_error=False)
+        self.assertEqual(result['result'], 'this must return')
+
+    def test_error_require_csrf_False(self):
+        def view(request):
+            raise Exception
+        config = self.config
+        config.include('pyramid_rpc.jsonrpc')
+        config.set_default_csrf_options(require_csrf=True)
+        config.add_jsonrpc_endpoint('rpc', '/api/jsonrpc', require_csrf=False)
+        config.add_jsonrpc_method(view, endpoint='rpc', method='err')
+        app = config.make_wsgi_app()
+        app = TestApp(app)
+        result = self._callFUT(app, 'err', [], id=None, expect_error=True)
+        self.assertEqual(result['error']['code'], -32603)
+
+    def test_error_require_csrf_True(self):
+        def view(request):
+            raise Exception
+        config = self.config
+        config.set_session_factory(DummySessionFactory)
+        config.include('pyramid_rpc.jsonrpc')
+        config.add_jsonrpc_endpoint('rpc', '/api/jsonrpc', require_csrf=True)
+        config.add_jsonrpc_method(view, endpoint='rpc', method='err')
+        app = config.make_wsgi_app()
+        app = TestApp(app)
+        with self.assertRaises(BadCSRFToken):
+            result = self._callFUT(app, 'err', [], id=None, expect_error=True)
+
+    def test_it_with_batched_requests_require_csrf_False(self):
+        def view(request, a, b):
+            return [a, b]
+        config = self.config
+        config.include('pyramid_rpc.jsonrpc')
+        config.set_default_csrf_options(require_csrf=True)
+        config.add_jsonrpc_endpoint('rpc', '/api/jsonrpc', require_csrf=False)
+        config.add_jsonrpc_method(view, endpoint='rpc', method='dummy')
+        app = config.make_wsgi_app()
+        app = TestApp(app)
+        body = [
+            {'id': 1, 'jsonrpc': '2.0', 'method': 'dummy', 'params': [2, 3]},
+            {'id': 2, 'jsonrpc': '2.0', 'method': 'dummy', 'params': {'a': 3, 'b': 2}},
+        ]
+        resp = app.post('/api/jsonrpc', content_type='application/json',
+                        params=json.dumps(body))
+        self.assertEqual(resp.status_int, 200)
+        result = resp.json
+        result1 = [r for r in result if r['id'] == 1][0]
+        result2 = [r for r in result if r['id'] == 2][0]
+        self.assertEqual(result1, {'id': 1, 'jsonrpc': '2.0', 'result': [2, 3]})
+        self.assertEqual(result2, {'id': 2, 'jsonrpc': '2.0', 'result': [3, 2]})
+
+    def test_it_with_batched_requests_require_csrf_True_must_fail(self):
+        def view(request, a, b):
+            return [a, b]
+        config = self.config
+        config.set_session_factory(DummySessionFactory)
+        config.include('pyramid_rpc.jsonrpc')
+        config.add_jsonrpc_endpoint('rpc', '/api/jsonrpc', require_csrf=True)
+        config.add_jsonrpc_method(view, endpoint='rpc', method='dummy')
+        app = config.make_wsgi_app()
+        app = TestApp(app)
+        body = [
+            {'id': 1, 'jsonrpc': '2.0', 'method': 'dummy', 'params': [2, 3]},
+            {'id': 2, 'jsonrpc': '2.0', 'method': 'dummy', 'params': {'a': 3, 'b': 2}},
+        ]
+        with self.assertRaises(BadCSRFToken):
+            resp = app.post('/api/jsonrpc', content_type='application/json',
+                            params=json.dumps(body))
 
 
 class TestGET(unittest.TestCase):

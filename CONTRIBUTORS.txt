@@ -108,3 +108,5 @@ Contributors
 - Donald Stufft, 8/11/2015
 
 - Ben Holzman, 11/17/2015
+
+- Antti Haapala, 8/29/2017
